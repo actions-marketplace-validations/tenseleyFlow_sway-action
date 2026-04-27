@@ -1,0 +1,99 @@
+name: "Sway adapter evaluator"
+description: "Run sway against a PEFT adapter and post the report to the PR"
+author: "tenseleyFlow"
+branding:
+  icon: "activity"
+  color: "purple"
+
+inputs:
+  spec-path:
+    description: "Path to sway.yaml (relative to the repo root)."
+    required: true
+  fail-on:
+    description: |
+      Verdict that triggers a non-zero exit. One of:
+      `fail` (default — only hard failures fail the action),
+      `warn` (warns also fail), `never` (always exit 0).
+    required: false
+    default: "fail"
+  comment-on-pr:
+    description: "Post / edit the markdown report as a PR comment."
+    required: false
+    default: "true"
+  upload-artifact:
+    description: "Upload the JSON + markdown reports as a workflow artifact."
+    required: false
+    default: "true"
+  sway-version:
+    description: |
+      The dlm-sway version to install. Pin this if you don't want
+      action upgrades to silently change the sway behavior.
+    required: false
+    default: "0.1.0"
+  python-version:
+    description: "Python interpreter version to bootstrap the sway venv."
+    required: false
+    default: "3.11"
+
+outputs:
+  sway-score:
+    description: "Composite score (0.0 – 1.0) parsed from the run's JSON report."
+    value: ${{ steps.run.outputs.sway-score }}
+  verdict:
+    description: "Top-level verdict: `pass`, `warn`, or `fail`."
+    value: ${{ steps.run.outputs.verdict }}
+  report-path:
+    description: "Filesystem path to the JSON report inside the runner workspace."
+    value: ${{ steps.run.outputs.report-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache sway venv
+      id: cache-venv
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.action_path }}/.venv
+        key: >-
+          sway-action-venv-${{ runner.os }}-${{ inputs.python-version }}-${{ inputs.sway-version }}
+
+    - name: Run sway
+      id: run
+      shell: bash
+      env:
+        SWAY_ACTION_PATH: ${{ github.action_path }}
+        SWAY_SPEC_PATH: ${{ inputs.spec-path }}
+        SWAY_FAIL_ON: ${{ inputs.fail-on }}
+        SWAY_VERSION: ${{ inputs.sway-version }}
+      run: bash "${SWAY_ACTION_PATH}/src/entrypoint.sh"
+
+    - name: Upload report artifact
+      if: ${{ always() && inputs.upload-artifact == 'true' && steps.run.outputs.report-path != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: sway-report-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.run.outputs.report-path }}
+          ${{ steps.run.outputs.markdown-path }}
+        if-no-files-found: warn
+
+    - name: Comment on PR
+      if: >-
+        always()
+        && inputs.comment-on-pr == 'true'
+        && github.event_name == 'pull_request'
+        && steps.run.outputs.markdown-path != ''
+      uses: actions/github-script@v7
+      env:
+        SWAY_MARKDOWN_PATH: ${{ steps.run.outputs.markdown-path }}
+        SWAY_VERDICT: ${{ steps.run.outputs.verdict }}
+        SWAY_SCORE: ${{ steps.run.outputs.sway-score }}
+      with:
+        script: |
+          const post = require(`${process.env.GITHUB_ACTION_PATH}/src/post-comment.js`);
+          await post({ github, context, core });
