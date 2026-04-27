@@ -61,29 +61,32 @@ jobs:
           SITE="$("${VENV}/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
           cp -r tests/_stub_dlm_sway "${SITE}/dlm_sway"
 
-      - name: Run entrypoint
+      - name: Run entrypoint and snapshot outputs
         env:
           SWAY_ACTION_PATH: ${{ runner.temp }}/action_path
           SWAY_SPEC_PATH: examples/sway.yaml
           SWAY_FAIL_ON: fail
           SWAY_VERSION: 0.1.0
-          GITHUB_OUTPUT: ${{ runner.temp }}/gh_output
-          RUNNER_TEMP: ${{ runner.temp }}
           GITHUB_RUN_ID: smoke-stub
+        # ``$GITHUB_OUTPUT`` is per-step and the runner deletes it
+        # after end-of-step processing, so we can't read it from a
+        # later step. Copy it to a stable path before this step ends
+        # and have the assert step inspect that copy instead.
         run: |
-          : > "${GITHUB_OUTPUT}"
+          set -eux
           bash src/entrypoint.sh
+          cp "${GITHUB_OUTPUT}" "${RUNNER_TEMP}/sway_outputs.dump"
 
       - name: Assert outputs match canned report
         env:
-          GITHUB_OUTPUT_FILE: ${{ runner.temp }}/gh_output
+          OUTPUTS_DUMP: ${{ runner.temp }}/sway_outputs.dump
         run: |
           set -eux
-          cat "${GITHUB_OUTPUT_FILE}"
-          grep -q '^verdict=pass$' "${GITHUB_OUTPUT_FILE}"
-          grep -q '^sway-score=0.8400$' "${GITHUB_OUTPUT_FILE}"
-          grep -q '^report-path=' "${GITHUB_OUTPUT_FILE}"
-          grep -q '^markdown-path=' "${GITHUB_OUTPUT_FILE}"
+          cat "${OUTPUTS_DUMP}"
+          grep -q '^verdict=pass$' "${OUTPUTS_DUMP}"
+          grep -q '^sway-score=0.8400$' "${OUTPUTS_DUMP}"
+          grep -q '^report-path=' "${OUTPUTS_DUMP}"
+          grep -q '^markdown-path=' "${OUTPUTS_DUMP}"
 
   self-test:
     # End-to-end: run the action against itself on a PR with a real
