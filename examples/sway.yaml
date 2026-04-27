@@ -1,0 +1,21 @@
+# Minimal example sway spec used by the action README.
+# Copy this into your repo, point `adapter:` at your PEFT directory,
+# and reference this file via the action's `spec-path` input.
+version: 1
+models:
+  base:
+    kind: hf
+    base: HuggingFaceTB/SmolLM2-135M-Instruct
+  ft:
+    kind: hf
+    base: HuggingFaceTB/SmolLM2-135M-Instruct
+    adapter: ./adapter   # path to your PEFT save_pretrained directory
+defaults:
+  seed: 0
+suite:
+  - name: knows_anything
+    kind: delta_kl
+    prompts:
+      - "The capital of France is"
+      - "Two plus two equals"
+    assert_mean_gte: 0.02
